@@ -867,11 +867,13 @@ gf_inv_FLT(gf *d, const gf *a)
 
 /*
  * Compute (a*f+v*g)/2^32. Parameters f and g are provided with an
- * unsigned type, but they are signed integers in the -2^32..+2^32 range.
- * Values a, b and d are not field elements, but signed 256-bit integers.
- * The division by 2^32 is assumed to be exact (low j bits of a*f+v*g
- * are dropped). The result is assumed to fit in 256 bits (truncation is
- * applied on higher bits).
+ * unsigned type, but they are signed integers in the -2^32..+2^32
+ * range. Values a, b and d are not field elements, but signed 256-bit
+ * integers (i.e. top bit is the sign bit) which are nonnegative (value
+ * is between 0 and 2^255-1). The division by 2^32 is assumed to be
+ * exact (low j bits of a*f+v*g are dropped). The result is assumed to
+ * fit in 256 bits, including the sign bit (truncation is applied on
+ * higher bits).
  *
  * If the result turns out to be negative, then it is negated. Returned
  * value is 1 if the result was negated, 0 otherwise.
@@ -1341,7 +1343,7 @@ gf_inv(gf *d, const gf *y)
 		"xorl	%%ecx, %%ecx\n\t"
 		"movl	$1, %%edx\n\t"
 
-		/* Do 58 iterations. */
+		/* Do 60 iterations. */
 		"movl	$30, %%r8d\n\t"
 		"0:\n\t"
 		INV_INNER
