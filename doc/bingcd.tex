@@ -106,7 +106,7 @@
 \institute{NCC Group, \email{thomas.pornin@nccgroup.com}}
 
 \maketitle
-\noindent\makebox[\textwidth]{4 August 2020} % FIXME
+\noindent\makebox[\textwidth]{6 August 2020} % FIXME
 
 \begin{abstract}
 In this short note, we describe a practical optimization of the
@@ -123,7 +123,7 @@ cycles, with a fully constant-time implementation.
 We study here the following problem: given an odd integer $m \geq 3$ and
 a value $y \in \bZ_m$, compute its modular inverse $x$ which is such
 that $xy = 1 \bmod m$. This is a notoriously expensive operation,
-compared with additions and multiplications in $\bZ_m$. Its cost is the
+compared with addition and multiplication in $\bZ_m$. Its cost is the
 main reason why, for instance, operations on elliptic curves are often
 done with projective coordinates or other similar systems where
 coordinates are handled as fractions, so that all costly inversions can
@@ -135,12 +135,12 @@ invert and/or the modulus is secret. In elliptic curve cryptography, the
 modulus $m$ is normally prime and publicly known, but the value to
 invert is private. In RSA key pair generation, modular inversion is
 needed to compute the private exponent, and the CRT reconstruction
-factor; in these cases, value to invert and modulus are both secret, and
-when computing the private exponent from the public exponent, the
-modulus is not even prime. In all situations where secret values are
-handled, a \emph{constant-time} implementation is needed (i.e. one with
-a fixed execution time, and a memory access pattern that does not depend
-on secret data).
+factor; in these cases, the value to invert and the modulus are both
+secret, and when computing the private exponent from the public
+exponent, the modulus is not even prime. In all situations where secret
+values are handled, a \emph{constant-time} implementation is needed
+(i.e. one with an execution time and a memory access pattern that
+do not vary depending on secret data).
 
 When $m$ is prime, a simple method is to use Fermat's little theorem:
 \begin{equation*}
@@ -160,19 +160,20 @@ Apart from Fermat's little theorem, the main method to compute modular
 inverses is the Extended Euclidean Algorithm for GCD. While Euclid's
 algorithm was presented by Euclid himself\cite{Euc300BC}, the extension
 to compute values $u$ and $v$ such that $au + bv = \text{GCD}(a,b)$ was
-first described by \={A}ryabha\d{t}a\cite{Ary499}. The Binary GCD is a
+first described by \={A}ryabha\d{t}a\cite{Ary499}. The binary GCD is a
 variant of Euclid's algorithm that performs only comparisons,
-subtractions and divisions by 2, and is therefore more amenable to fast
-and constant-time implementations than the general divisions in Euclid's
-algorithm; that algorithm was first presented, albeit a bit cryptically,
-in the Nine Chapters on the Mathematical Art\cite{Chi1}. A more
-accessible description was published by Stein in 1967\cite{Ste1967}. A
-variant called the plus-minus algorithm was presented by Brent and Kung
-in 1983\cite{BreKun1983}. More recently, a new (and quite complex)
-algorithm was described by Bernstein and Yang\cite{BerYan2019}. See also
-\cite{NatSar2018} for extensive benchmarks for inversions modulo primes
-with the $2^n - r$ format (for a small $r$). Asymptotically fast
-but not constant-time GCD algorithms are presented in~\cite{Mol2008}.
+subtractions and divisions by 2 (i.e. right shifts), and is therefore
+more amenable to fast and constant-time implementations than the general
+divisions in Euclid's algorithm; that algorithm was first presented,
+albeit a bit cryptically, in the Nine Chapters on the Mathematical
+Art\cite{Chi1}. A more accessible description was published by Stein in
+1967\cite{Ste1967}. A variant called the plus-minus algorithm was
+presented by Brent and Kung in 1983\cite{BreKun1983}. More recently, a
+new (and quite complex) algorithm was described by Bernstein and
+Yang\cite{BerYan2019}. See also \cite{NatSar2018} for extensive
+benchmarks for inversions modulo primes with the $2^n - r$ format (for a
+small $r$). Asymptotically fast but not constant-time GCD algorithms are
+presented in~\cite{Mol2008}.
 
 Bernstein and Yang claim to hold the current speed record for computing
 inverses modulo $2^{255}-19$ on recent 64-bit x86 CPUs (Skylake cores
@@ -278,12 +279,12 @@ thus delay and group the updates to $u$ and $v$:
     \begin{equation*}
         (u, v) \leftarrow (f_0 u + g_0 v, f_1 u + g_1 v)
     \end{equation*}
-    The idea is to do the update only once every $k$ iterations, for
-    some $k$ such that the update factors are still small integers (e.g.
-    fitting into a single register each). The update itself can then use
-    integer multiplication opcodes, which will be much faster than
-    making $k$ linear updates. After each such update, the update
-    factors are reinitialized.
+    We update $f_0$, $f_1$, $g_0$ and $g_1$ instead of $u$ and $v$ in
+    the algorithm. Once every $k$ iterations, while the update factors
+    are still small (e.g. they fit in a single register each), we apply
+    them to $u$ and $v$ using multiplication opcodes, which is much
+    faster than making $k$ linear updates. After each such update, the
+    update factors are reinitialized.
 
     \item When swapping $a$ with $b$ (in case $a$ and $b$ are both odd,
     and $a < b$), exchange $f_0$ with $f_1$ and $g_0$ with $g_1$.
@@ -456,14 +457,13 @@ that point:
 
 \end{itemize}
 
-In the general case, when modulus $m$ is not necessarily prime, and
+In the general case, when modulus $m$ is not necessarily prime, and a
 non-invertible but distinct from zero input $y$ is possible, these
-optimizations on the final steps can still be applied, provided that an
-extra verification step is added: one the candidate inverse has been
-computed, multiply it with the original operand, and check that the
-value 1 is indeed obtained. The cost of this extra check is small
-(typically less than 2\% of the overall cost, for a modulus of about 256
-bits).
+optimizations on the final steps can still be applied, but an extra
+verification step is required. It suffices to verify that the computed
+value, when multiplied with the original operand, yields the value 1.
+The cost of this extra check is small (typically less than 2\% of the
+overall cost, for a modulus of about 256 bits).
 
 \section{Implementation and Benchmarks}
 
@@ -481,10 +481,10 @@ Extraction of the approximated words $\bar a$ and $\bar b$ is done with
 constant-time selection primitives to obtain the highest non-zero limbs
 in $a \text{\textsc{\ or\ }} b$ (bitwise Boolean \textsc{or}), then
 the \verb+lzcnt+ opcode to count the number of leading zeros. This
-opcode is available on all x86 CPU that also feature the BMI2 opcodes.
+opcode is available on all x86 CPUs that also feature the BMI2 opcodes.
 This extraction is constant-time under the assumption that bitwise shifts
 execute in time independent of the shift count, an assumption that is
-valid on all relevant x86 CPU to date\footnote{The last Intel CPU on
+valid on all relevant x86 CPUs to date\footnote{The last Intel CPU on
 which shifts were not constant-time with regard to the shift count was
 the Pentium IV, in the early 2000s, but that CPU does not offer
 \texttt{lzcnt}.}.
@@ -605,16 +605,16 @@ undocumented.}.
 On this system, our inversion routine runs in 7490~cycles. This is
 better than the previously published record\cite{BerYan2019}, which runs
 in 8520~cycles on the same system. For comparison purposes, we also
-implemented the usual inversion method with Fermat's little theorem; for
-this, we use handwritten assembly routines for multiplications,
-squarings, and sequences of squarings modulo $2^{255}-19$. These
-routines are inspired from, and very similar to, the ones described
-in~\cite{OliLopHisFazRod2017} and \cite{NatSar2018}, though our FLT
-inversion routine ends up running in 9175~cycles, which is very slightly
-faster than the previous record (9301~cycles, in~\cite{NatSar2018}):
-apparently, our multiple squaring routine is faster by about half a
-cycle per iteration. We don't really know why. In any case, the extended
-binary GCD is still faster.
+implemented the usual inversion method with Fermat's little theorem
+(FLT); for this, we use handwritten assembly routines for
+multiplications, squarings, and sequences of squarings modulo
+$2^{255}-19$. These routines are inspired from, and very similar to, the
+ones described in~\cite{OliLopHisFazRod2017} and \cite{NatSar2018},
+though our FLT inversion routine ends up running in 9175~cycles, which
+is very slightly faster than the previous record (9301~cycles,
+in~\cite{NatSar2018}): apparently, our multiple squaring routine is
+faster by about half a cycle per iteration. We don't really know why. In
+any case, the extended binary GCD is still faster.
 
 A noteworthy feature of our code is that it can work with other moduli,
 with the same performance; supported moduli have the format $2^{255}-r$
@@ -729,7 +729,7 @@ In this section, we prove that the inner loop of
 algorithm~\ref{alg:bingcd:optimized} ensures that the $k$ iterations
 always reduce $\bitlength(a)+\bitlength(b)$ by at least $k$ bits.
 
-Each excution of the inner loop consists in $k$ iterations. We number
+Each excution of the inner loop consists of $k$ iterations. We number
 iterations from $0$ to $k-1$; this means that iteration $t$ happens just
 after $t$ iterations have completed. We will note $x_t$ the value of the
 quantity $x$ (for any of the quantities we manipulate, namely $a$, $b$,
@@ -790,10 +790,10 @@ iterations, and the corresponding values of $a$ and $b$, should the
 update factors be applied at that point. Note that, by construction, the
 divisions by $2^t$ are exact.
 
-$\bar a$ and $\bar b$ are approximations of $a$ and $b$ in the sense that
-bits $k$ to $2k-1$ of $\bar a$ (respectively $\bar b$) are exactly the
-same as bits $n-k$ to $n-1$ of $a$ (respectively $b$). This can be
-expressed with the following inequalities:
+Note that $\bar a$ and $\bar b$ are approximations of $a$ and $b$ in the
+sense that bits $k$ to $2k-1$ of $\bar a$ (respectively $\bar b$) are
+exactly the same as bits $n-k$ to $n-1$ of $a$ (respectively $b$). This
+can be expressed with the following inequalities:
 \begin{align*}
     |a - 2^{n-2k} \bar a| &< 2^{n-k} \\
     |b - 2^{n-2k} \bar b| &< 2^{n-k}
@@ -828,26 +828,27 @@ right away.
 
 \subsection{Length Reduction at Divergence Point}\label{sec:iterbound:diverge}
 
-As previously, consider the values $a$ and $b$ at the start of an inner
-loop. The $k$ iterations of the inner loop will perform halvings, swaps
-and subtractions based on the bits in $\bar a$ and $\bar b$, used as
-representations of $a$ and $b$. The halvings and subtractions rely on
-the $k$ low bits of $\bar a$ and $\bar b$, which are always exact; only
-the conditional swaps may differ between the classic and optimized
-algorithms, since, in the latter case, the relative ordering of $\bar a$
-and $\bar b$ might not match that of $a$ and $b$.
+As in the previous section, consider the values $a$ and $b$ at the start
+of an inner loop. The $k$ iterations of the inner loop will perform
+halvings, swaps and subtractions based on the bits in $\bar a$ and $\bar
+b$, used as representations of $a$ and $b$. The halvings and
+subtractions rely on the $k$ low bits of $\bar a$ and $\bar b$, which
+are always exact; only the conditional swaps may differ between the
+classic and optimized algorithms, since, in the latter case, the
+relative ordering of $\bar a$ and $\bar b$ might not match that of $a$
+and $b$.
 
 If, throughout the $k$ iterations, the inner loop makes the exact same
 decisions that it would take with the actual updated values of $a$ and
 $b$, then it follows the same steps as the classic algorithm
 (algorithm~\ref{alg:bingcd:classic}) on the same inputs, and thus
 obtains the same reduction in length of $a$ and $b$, i.e. at least $k$
-bits in total. Otherwise, we call \emph{divergence point} the iteration
-$d$ ($0\leq d < k$) at which the inner loop of
+bits in total. Otherwise, we call the \emph{divergence point} the
+iteration $d$ ($0\leq d < k$) at which the inner loop of
 algorithm~\ref{alg:bingcd:optimized} takes a different decision from
 that would have been taken by the classic algorithm. Let us observe the
 situation at that point, using the notations from
-section~\ref{sec:iterbound:error}:
+
 \begin{itemize}
 
     \item The algorithm has $\bar a_d$ and $\bar b_d$, which are both odd.
@@ -915,7 +916,7 @@ After the divergence point, the following properties apply:
     \item If $a_t < 0$ and $b_t > 0$, then $a_t - b_t < 0$.
 
 \end{itemize}
-Therefore, in all subsequent steps, one of the value will be negative,
+Therefore, in all subsequent steps, one of the values will be negative,
 and the other one will be positive. It cannot happen that two strictly
 negative values, or two nonnegative values are obtained, unless $a$
 reaches zero (in which case the algorithm has converged).
@@ -958,7 +959,7 @@ each iteration). For $t \leq k-1$, we have:
         &> 2^{k - 1} + 2^k - 1 \\
         &> \bar b_t
 \end{align*}
-Thus, up to an including the last iteration, $a_t > b_t$ and the inner
+Thus, up to and including the last iteration, $a_t > b_t$ and the inner
 loop will not perform a swap. It follows that, after $k$ iterations, the
 reduction factors are such that $f_0 = 1$, $0\geq g_0\geq -(2^k-1)$,
 $f_1 = 0$, and $g_1 = 2^k$. Since $a > 2^{k-1} b$, similar inequalities
