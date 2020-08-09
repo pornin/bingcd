@@ -23,6 +23,8 @@
 %\captionsetup{font=small}
 \captionsetup{labelfont={sf,bf}}
 \usepackage{CJKutf8}
+\def\DevnagVersion{2.17}
+\usepackage{devanagari}
 
 \PassOptionsToPackage{hyphens}{url}\usepackage{hyperref}
 
@@ -106,7 +108,7 @@
 \institute{NCC Group, \email{thomas.pornin@nccgroup.com}}
 
 \maketitle
-\noindent\makebox[\textwidth]{6 August 2020} % FIXME
+\noindent\makebox[\textwidth]{9 August 2020} % FIXME
 
 \begin{abstract}
 In this short note, we describe a practical optimization of the
@@ -250,9 +252,11 @@ Therefore, if $m$ is a $n$-bit integer, then at most $2n-1$ iterations
 are needed to reach the exit condition. In order to have a constant-time
 implementation, we need to \emph{always} perform $2n-1$ iterations; if
 $a = 0$, the extra iterations will not modify $b$ or $v$, so they won't
-modify the result. A constant-time implementation will also need to
-perform each iteration in a constant-time way, replacing all conditions
-with bitwise combinations of values.
+modify the result\footnote{As will be explained later on, the last
+iteration needs not be done if the input $y$ is known to be
+invertible.}. A constant-time implementation will also need to perform
+each iteration in a constant-time way, replacing all conditions with
+bitwise combinations of values.
 
 The extended binary GCD is quadratic in the length of the modulus: it
 has $O(n)$ iterations, and each iteration involves a fixed number of
@@ -455,10 +459,16 @@ that point:
     update factors are exact at that point, they cannot lead to a
     negative $b$).
 
+    \item The last inner loop iteration can be omitted because when the
+    GCD is $1$, the last iteration that starts with a non-zero $a$ must
+    have $a = 1$ and $b = 1$, and $v$ already contains the correct
+    result. This reduces the total number of required iterations to
+    $2\bitlength(m) - 2$, i.e. 508 for a 255-bit modulus.
+
 \end{itemize}
 
-In the general case, when modulus $m$ is not necessarily prime, and a
-non-invertible but distinct from zero input $y$ is possible, these
+In the general case, when the modulus $m$ is not necessarily prime, and
+a non-invertible but distinct from zero input $y$ is possible, these
 optimizations on the final steps can still be applied, but an extra
 verification step is required. It suffices to verify that the computed
 value, when multiplied with the original operand, yields the value 1.
@@ -491,16 +501,10 @@ the Pentium IV, in the early 2000s, but that CPU does not offer
 
 Updates to $a$, $b$, $u$ and $v$ use $64\times 64\rightarrow 128$
 multiplication opcodes, accessed through the non-standard
-\verb+unsigned __int128+ type\footnote{Note that the Microsoft Visual C
-compilers do not support this 128-bit type; they do not support inline
-assembly in 64-bit mode either. Thus, our example implementation is
-mostly restricted to GCC and Clang, and perhaps some other compilers
-that strive at GCC compatibility, including extensions to the language
-syntax. An MSVC implementation would use the \texttt{\_umul128()} intrinsic
-function, and an external assembly module.}. Large integers are
-represented over 256 bits as four 64-bit limbs; carry propagation uses
-the \verb+adc+ and \verb+sbb+ opcodes, accessed through the
-\verb+_addcarry_u64()+ and \verb+_subborrow_u64()+ intrinsic functions.
+\verb+unsigned __int128+ type. Large integers are represented over 256
+bits as four 64-bit limbs; carry propagation uses the \verb+adc+ and
+\verb+sbb+ opcodes, accessed through the \verb+_addcarry_u64()+ and
+\verb+_subborrow_u64()+ intrinsic functions.
 
 The whole point of the optimization described in this note is to make
 the core of the inner loop as simple and fast as possible. In our
@@ -599,7 +603,7 @@ measurement variance remains, of unclear provenance. It does not seem to
 be correlated with the value being inverted (since we observe that
 variance even when using the same values again and again), and thus
 should not contradict our claim of constant-time behaviour. It is known
-that modern complex CPU are full of accumulated heuristics, many of them
+that modern complex CPUs are full of accumulated heuristics, many of them
 undocumented.}.
 
 On this system, our inversion routine runs in 7490~cycles. This is
@@ -611,7 +615,7 @@ multiplications, squarings, and sequences of squarings modulo
 $2^{255}-19$. These routines are inspired from, and very similar to, the
 ones described in~\cite{OliLopHisFazRod2017} and \cite{NatSar2018},
 though our FLT inversion routine ends up running in 9175~cycles, which
-is very slightly faster than the previous record (9301~cycles,
+is marginally faster than the previous record (9301~cycles,
 in~\cite{NatSar2018}): apparently, our multiple squaring routine is
 faster by about half a cycle per iteration. We don't really know why. In
 any case, the extended binary GCD is still faster.
@@ -649,10 +653,15 @@ is useful to test the quadratic residue status of a finite field element,
 which in turn is part of the operations used for constant-time hashing
 into elliptic curves\cite{DraftHashToCurve09}.
 
+\vspace{2ex}
+\noindent\textsf{\textbf{Acknowledgements:}} We thank Eric Schorn
+and Paul Bottinelli, who reviewed this article.
+
 \begin{thebibliography}{20}
 
 \bibitem{Ary499}
-\={A}ryabha\d{t}a,
+%\={A}ryabha\d{t}a,
+{\dn aAy\0BV},
 \emph{\={A}ryabha\d{t}\={\i}ya}, 499.
 
 \bibitem{BearSSL}
@@ -707,9 +716,9 @@ K.~Nath and P.~Sarkar,
 \emph{Efficient Arithmetic In (Pseudo-)Mersenne Prime Order Fields},\\
 \url{https://eprint.iacr.org/2018/985}
 
-\bibitem{OliLopHisFazRod2017},
-T.~Oliveira, J.~López, H.~Hisil, A.~Faz-Hernández and F.~Rodríguez-Henríquez,
-\emph{How to (pre-)compute a ladder -- improving the performance of
+\bibitem{OliLopHisFazRod2017}
+T.~Oliveira, J.~López, H.~Hisil, A.~Faz-Hernández and F.~Rodríguez-Henríquez,\\
+\emph{How to \hbox{(pre-)compute} a ladder -- improving the performance of
 X25519 and X448}, SAC 2017, Lecture Notes in Computer Science,
 vol.~10719, pp.~172-191.
 
@@ -722,7 +731,6 @@ Journal of Computational Physics, vol.~1, issue~3, pp.~397–405, 1967.
 
 \appendix
 
-\newpage
 \section{Bounding the Number of Iterations}\label{sec:iterbound}
 
 In this section, we prove that the inner loop of
@@ -739,7 +747,9 @@ $\bar a$ and $\bar b$) when \emph{exiting} iteration $t-1$ and
 \subsection{Maximum Error Bound}\label{sec:iterbound:error}
 
 We first need to show that $\bar a$ and $\bar b$ remain ``good
-approximations'' of $a$ and $b$ over the $k$ iterations.
+approximations'' of $a$ and $b$ over the $k$ iterations, i.e.,
+that the upper bits of $\bar a$ and $\bar b$ still match or are
+close to the upper bits of $a$ and $b$.
 
 First, notice that after $t$ iterations of the inner loop
 ($0\leq t\leq k$), the following inequalities hold:
@@ -848,6 +858,7 @@ iteration $d$ ($0\leq d < k$) at which the inner loop of
 algorithm~\ref{alg:bingcd:optimized} takes a different decision from
 that would have been taken by the classic algorithm. Let us observe the
 situation at that point, using the notations from
+section~\ref{sec:iterbound:error}:
 
 \begin{itemize}
 
@@ -1038,13 +1049,13 @@ a reduction of at least $k$ bits is achieved, which completes the proof.
 \vspace{2ex}
 \noindent\textsf{\textbf{Commentary:}} It may be surprising that even
 using approximations, we do not need more iterations than the classic
-binary GCD, for which the worst case bound $2\bitlength(m)-1$ is
-already optimal. Intuitively, the reason is that we have some extra
-``hidden'' iterations: the conditional negation of $a$ and $b$,
-after their respective updates every $k$ iterations, is the point where
-the approximation is resolved. In that sense, the optimized algorithm
-really needs $k+1$ iterations in the worst case to achieve a $k$-bit
-reduction; the last of these $k+1$ iterations masquerades as a
-pair of conditional subtractions.
+binary GCD, for which the worst case bound $2\bitlength(m)-1$ is already
+optimal. Intuitively, the reason is that we have some extra ``hidden''
+iterations: the conditional negation of $a$ and $b$ (after their
+respective updates every $k$ iterations) is the point where the
+approximation is resolved. In that sense, the optimized algorithm really
+needs $k+1$ iterations in the worst case to achieve a $k$-bit reduction;
+the last of these $k+1$ iterations masquerades as a pair of conditional
+subtractions.
 
 \end{document}
