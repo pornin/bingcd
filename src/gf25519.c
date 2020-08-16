@@ -131,10 +131,10 @@ gf_sub(gf *d, const gf *a, const gf *b)
 	cc = _subborrow_u64(cc, d3, 0, (unsigned long long *)&d->v3);
 
 	/*
-	 * If there is still a carry, then we must add p again. In that
-	 * case, subtracting MQ from the low limb won't trigger a carry.
+	 * If there is still a carry, then we must add 2*p again. In that
+	 * case, subtracting 2*MQ from the low limb won't trigger a carry.
 	 */
-	d->v0 = d0 - (-(unsigned long long)cc & MQ);
+	d->v0 = d0 - (-(unsigned long long)cc & (2 * MQ));
 }
 
 /* see gf25519.h */
