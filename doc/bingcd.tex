@@ -418,16 +418,14 @@ The optimized algorithm is described below
                 \EndIf
                 \State{$(f_1, g_1) \leftarrow (2f_1, 2g_1)$}
             \EndFor
-            \State{$a \leftarrow af_0 + bg_0$}
+            \State{$(a, b) \leftarrow (af_0 + bg_0, af_1 + bg_1)$}
             \If{$a < 0$}
                 \State{$(a, f_0, g_0) \leftarrow (-a, -f_0, -g_0)$}
             \EndIf
-            \State{$u \leftarrow uf_0 + vg_0 \bmod m$}
-            \State{$b \leftarrow af_1 + bg_1$}
             \If{$b < 0$}
                 \State{$(b, f_1, g_1) \leftarrow (-b, -f_1, -g_1)$}
             \EndIf
-            \State{$v \leftarrow uf_1 + vg_1 \bmod m$}
+            \State{$(u, v) \leftarrow (uf_0 + vg_0 \bmod m, uf_1 + vg_1 \bmod m)$}
         \EndFor
         \State{$v \leftarrow v/2^{k\lceil (2\bitlength(m)-1)/k \rceil} \bmod m$}
         \If{$b \neq 1$}
