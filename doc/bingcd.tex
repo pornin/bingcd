@@ -108,7 +108,7 @@
 \institute{NCC Group, \email{thomas.pornin@nccgroup.com}}
 
 \maketitle
-\noindent\makebox[\textwidth]{9 August 2020} % FIXME
+\noindent\makebox[\textwidth]{23 August 2020} % FIXME
 
 \begin{abstract}
 In this short note, we describe a practical optimization of the
@@ -116,9 +116,20 @@ well-known extended binary GCD algorithm, for the purpose of computing
 modular inverses. The method is conceptually simple and is applicable
 to all odd moduli (including non-prime moduli). When implemented
 for inversion in the field of integers modulo the prime $2^{255}-19$, on
-a recent x86 CPU (Coffee Lake core), we compute the inverse in 7490
+a recent x86 CPU (Coffee Lake core), we compute the inverse in 6253
 cycles, with a fully constant-time implementation.
 \end{abstract}
+
+\begin{extranote}
+An initial version of this note used a slightly more aggressive
+algorithm ($k$ iterations of the inner loop instead of $k-1$) which was
+wrong. The gap in the proof was discovered by Tim Taubert, and further
+discussions showed a counterexample for which the algorithm failed.
+The current version of the algorithm, and the revised proof, are believed
+correct. A side effect of the fix is to enable extra optimizations in
+the implementation of the inner loop, leading to substantially better
+performance, now at 6253 cycles (from an original 7490 cycles).
+\end{extranote}
 
 \section{Introduction}\label{sec:intro}
 
@@ -191,13 +202,32 @@ reported in the published article; this makes sense, since Coffee Lake
 and Kaby Lake use the same internal scheduler and execution units, and
 differ only in external pieces that should not matter much for a
 compact, L1-cache only computational piece of code.}. With the method
-presented here, we do better: 7490 cycles.
+presented here, we do better: 6253 cycles.
 
 Our algorithm was added to the BearSSL library\cite{BearSSL} in 2018; it
 was also deployed as part of the implementation of key pair generation
 in the reference code for the Falcon post-quantum signature
 scheme\cite{Falcon}. This note formally describes the algorithm and
 proves its correctness.
+
+It shall be said that gaining even 2000~cycles on inversion modulo
+$2^{255}-19$ on recent x86 CPUs will not yield substantial performance
+gains in elliptic curve implementations that use that field: a curve
+point multiplication will typically use close to 100000~cycles or more,
+and a 2000-cycle gain will be hardly noticeable, even in the improbable
+situation of a system where raw elliptic curve performance is the
+bottleneck. In practice, on large server and desktop systems,
+cryptographic operations, especially asymmetric cryptographic
+operations, use only a relatively small proportion of the available
+power, and a 2\% gain on these operations will not really matter.
+However, on smaller architectures with less efficient multipliers, or
+when using larger moduli, the performance ratio with Fermat's little
+theorem is expected to increase, making the optimization worthwhile. In
+particular, on small microcontrollers (e.g. ARM Cortex M0+), the
+inversion algorithm presented in this note may be fast enough that a
+curve point multiplication routine using window optimizations would
+benefit from using it in order to normalize the window points to affine
+coordinates, for faster subsequent point additions.
 
 \section{Optimizing the Extended Binary GCD}
 
@@ -284,10 +314,10 @@ thus delay and group the updates to $u$ and $v$:
         (u, v) \leftarrow (f_0 u + g_0 v, f_1 u + g_1 v)
     \end{equation*}
     We update $f_0$, $f_1$, $g_0$ and $g_1$ instead of $u$ and $v$ in
-    the algorithm. Once every $k$ iterations, while the update factors
+    the algorithm. Once every $r$ iterations, while the update factors
     are still small (e.g. they fit in a single register each), we apply
     them to $u$ and $v$ using multiplication opcodes, which is much
-    faster than making $k$ linear updates. After each such update, the
+    faster than making $r$ linear updates. After each such update, the
     update factors are reinitialized.
 
     \item When swapping $a$ with $b$ (in case $a$ and $b$ are both odd,
@@ -302,8 +332,8 @@ thus delay and group the updates to $u$ and $v$:
 
 \end{itemize}
 
-The effect of the last item is that the update factors, after $t$
-iterations, are in fact themselves wrong by a factor of exactly $2^t$.
+The effect of the last item is that the update factors, after $r$
+iterations, are in fact themselves wrong by a factor of exactly $2^r$.
 This is not much of a problem; we can perform a division of the final
 result $v$ by $2^{2n-1}$, after the $2n-1$ iterations (if $m$ is known
 in advance, this division is merely a multiplication by a precomputed
@@ -311,11 +341,28 @@ constant; even in the general case, this division is the same thing as a
 pair of Montgomery reductions, and has a cost no higher than that of a
 couple of modular multiplications).
 
-The update factors are signed integers; after $k$ iterations, the
-maximum (absolute) value of any of them is $2^k$. It can also be seen
-that $-2^k$ is not possible, only $+2^k$, and only for $f_1$ or $g_1$.
-Thus, one can set $k$ to be up to one less than the size of the
-registers on the implementation architecture.
+The update factors are signed integers, and we can bound them: after
+$t \geq 1$ iterations, we have:
+\begin{equation*}
+    \begin{gathered}
+    -2^t < f_0, g_0 < +2^t \\
+    -2^t < f_1, g_1 \leq +2^t
+    \end{gathered}
+\end{equation*}
+This is easily seen to be true after one iteration: the only possible
+values for $(f_0, g_0)$ are then $(1, 0)$ ($a$ was even), $(1, -1)$ ($a$
+was odd, and $b$ was lower than $a$) or $(-1, 1)$ ($a$ was odd and lower
+than $b$, and a swap occurred before the subtraction); $(f_1, g_1)$ will
+be either $(0, 2)$ or $(2, 0)$. Similarly, if the relations are verified
+after $t$ iterations, then it can be seen that all three possible
+outcomes of the next iteration will lead to the relations still being
+verified after $t+1$ iterations.
+
+A consequence is that it is possible to encode update factors as
+\emph{unsigned} integers of $r+1$ bits, by storing $f_0 + 2^r - 1$,
+$f_1 + 2^r - 1$... In particular, if the current architecture has
+registers of $2r+2$ bits, then two update factors may be stored in the
+same register. This will be used in our most optimized implementation.
 
 \paragraph{Optimization 2: use approximations of \emph{a} and \emph{b}:}
 
@@ -343,27 +390,32 @@ the length of $x$ in bits (the smallest integer $i$ such that
 $x < 2^i$). Thus, $n$ is the current length of the largest of $a$ and $b$.
 If $n \leq 2k$, then the values $a$ and $b$ already fit into a single
 register each, and we can use the classic extended GCD algorithm to
-compute the exact update factors. Otherwise, extract the $k$ low bits
-and the $k$ top bits of $a$ and $b$, and assemble them into $\bar a$ and
+compute the exact update factors. Otherwise, extract the $k-1$ low bits
+and the $k+1$ top bits of $a$ and $b$, and assemble them into $\bar a$ and
 $\bar b$:
 \begin{align*}
-    \bar a &= (a \bmod 2^k) + 2^k \lfloor a / 2^{n-k} \rfloor \\
-    \bar b &= (b \bmod 2^k) + 2^k \lfloor b / 2^{n-k} \rfloor
+    \bar a &= (a \bmod 2^{k-1}) + 2^{k-1} \lfloor a / 2^{n-k-1} \rfloor \\
+    \bar b &= (b \bmod 2^{k-1}) + 2^{k-1} \lfloor b / 2^{n-k-1} \rfloor
 \end{align*}
-Then, apply the extended binary GCD on $\bar a$ and $\bar b$ for $k$
+Then, apply the extended binary GCD on $\bar a$ and $\bar b$ for $k-1$
 iterations, yielding update factors $f_0$, $g_0$, $f_1$ and $g_1$.
 Finally, apply these factors to update $a$, $b$, $u$ and $v$:
 \begin{align*}
-    (a, b) &\leftarrow (f_0 a + g_0 b, f_1 a + g_1 b) \\
+    (a, b) &\leftarrow ((f_0 a + g_0 b) / 2^{k-1}, (f_1 a + g_1 b) / 2^{k-1}) \\
     (u, v) &\leftarrow (f_0 u + g_0 v, f_1 u + g_1 v)
 \end{align*}
 
-Note that the computed update factors are then approximations; they may
-be slightly wrong, and thus fail to shrink $a$ and $b$ as much as
-expected. They may also lead to a negative value for $a$ or $b$; in
-case a negative $a$ is obtained, it suffices to negate it, and also to
-negate $u$ (this time modulo $m$), and similarly for $b$. In practice,
-it is convenient to:
+The divisions by $2^{k-1}$ are exact: while $\bar a$ and $\bar b$ are
+approximations of $a$ and $b$, their low $k-1$ bits match exactly, and
+the application of the update factors clears the $k-1$ low bits of $a$
+and $b$.
+
+The computed update factors are still approximations; they may be
+slightly wrong, i.e. fail to shrink $a$ and $b$ as much as expected.
+They may also lead to a negative value for $a$ or $b$; in case a
+negative $a$ is obtained, it suffices to negate it, and also to negate
+$u$ (this time modulo $m$), and similarly for $b$. In practice, it is
+convenient to:
 \begin{enumerate}
     \item update $a$ with the update factors $f_0$ and $g_0$;
     \item if the new value is negative, negate it, and also negate
@@ -375,14 +427,14 @@ it is convenient to:
 The tricky point is computing how many iterations are needed in the
 worst case; for a constant-time implementation, we need an absolute
 bound. Appendix~\ref{sec:iterbound} is dedicated to proving that each
-sequence of $k$ iterations ensures that $\bitlength(a) + \bitlength(b)$
-is reduced by at least $k$; therefore, $2\bitlength(m)-1$ iterations are
+sequence of $k-1$ iterations ensures that $\bitlength(a) + \bitlength(b)$
+is reduced by at least $k-1$; therefore, $2\bitlength(m)-1$ iterations are
 sufficient (just like the classic binary GCD algorithm). This bound
 is optimal: if $y = 2^{\bitlength(m)-1}$, then all $2\bitlength(m)-1$
 iterations are needed.
 
 It may be convenient, for implementation purposes, to slightly raise the
-total number of iterations so that it is a multiple of $k$.
+total number of iterations so that it is a multiple of $k-1$.
 Alternatively, the last iterations may be specialized away, which may
 allow for some extra optimizations, especially when the modulus $m$ is
 prime; this will be detailed later on.
@@ -400,12 +452,12 @@ The optimized algorithm is described below
             $b\leftarrow m$, $v\leftarrow 0$}
         \For{$1 \leq i \leq \lceil (2\bitlength(m)-1)/k \rceil$}
             \State{$n \leftarrow \text{max}(\bitlength(a), \bitlength(b), 2k)$}
-            \State{$\bar a \leftarrow (a \bmod 2^k) + 2^k \lfloor a / 2^{n-k} \rfloor$}
+            \State{$\bar a \leftarrow (a \bmod 2^{k-1}) + 2^{k-1} \lfloor a / 2^{n-k-1} \rfloor$}
                 \Comment{$\bar a < 2^{2k}$}
-            \State{$\bar b \leftarrow (b \bmod 2^k) + 2^k \lfloor b / 2^{n-k} \rfloor$}
+            \State{$\bar b \leftarrow (b \bmod 2^{k-1}) + 2^{k-1} \lfloor b / 2^{n-k-1} \rfloor$}
                 \Comment{$\bar b < 2^{2k}$}
             \State{\label{alg:bingcd:optimized:inner}$f_0 \leftarrow 1$, $g_0 \leftarrow 0$, $f_1 \leftarrow 0$, $g_1 \leftarrow 1$}
-            \For{$1 \leq j \leq k$}
+            \For{$1 \leq j \leq k-1$}
                 \If{$\bar a = 0 \bmod 2$}
                     \State{$\bar a \leftarrow \bar a/2$}
                 \Else
@@ -418,7 +470,7 @@ The optimized algorithm is described below
                 \EndIf
                 \State{$(f_1, g_1) \leftarrow (2f_1, 2g_1)$}
             \EndFor
-            \State{$(a, b) \leftarrow (af_0 + bg_0, af_1 + bg_1)$}
+            \State{$(a, b) \leftarrow ((af_0 + bg_0) / 2^{k-1}, (af_1 + bg_1) / 2^{k-1})$}
             \If{$a < 0$}
                 \State{$(a, f_0, g_0) \leftarrow (-a, -f_0, -g_0)$}
             \EndIf
@@ -427,7 +479,7 @@ The optimized algorithm is described below
             \EndIf
             \State{$(u, v) \leftarrow (uf_0 + vg_0 \bmod m, uf_1 + vg_1 \bmod m)$}
         \EndFor
-        \State{$v \leftarrow v/2^{k\lceil (2\bitlength(m)-1)/k \rceil} \bmod m$}
+        \State{$v \leftarrow v/2^{(k-1)\lceil (2\bitlength(m)-1)/(k-1) \rceil} \bmod m$}
         \If{$b \neq 1$}
             \State{\Return 0 (value $y$ is not invertible)}
         \EndIf
@@ -442,13 +494,13 @@ that point:
 \begin{itemize}
 
     \item If $y = 0$, then the update factors after $k$ inner
-    iterations will be $f_0 = 1$, $g_0 = 0$, $f_1 = 0$ and $g_1 = 2^k$,
+    iterations will be $f_0 = 1$, $g_0 = 0$, $f_1 = 0$ and $g_1 = 2^{k-1}$,
     regardless of the value of $\bar b$.
 
     \item Otherwise, it is known that $\bitlength(a) + \bitlength(b) <
     2k$, which means that $\bar a = a$ and $\bar b = b$; the computed
     update factors will then be exact, and will remain exact even if
-    more than $k$ iterations are performed. Depending on the
+    more than $k-1$ iterations are performed. Depending on the
     implementation of the routines that apply the update factors, it may
     be possible to merge the last two outer iterations.
 
@@ -482,8 +534,8 @@ $p = 2^{255}-19$. Our code is available at:
 \end{center}
 Implementation is in C, with some inline assembly, as well as calls to
 intrinsic functions. It should compile and run on any Linux or similar
-system, using GCC or Clang, and an x86 CPU with BMI2 extensions (in the
-Intel line, this means using a Haswell core or newer).
+system, using GCC or Clang, and an x86 CPU with BMI2 and ADX extensions
+(in the Intel line, this means using a Haswell core or newer).
 
 Extraction of the approximated words $\bar a$ and $\bar b$ is done with
 constant-time selection primitives to obtain the highest non-zero limbs
@@ -506,8 +558,9 @@ bits as four 64-bit limbs; carry propagation uses the \verb+adc+ and
 
 The whole point of the optimization described in this note is to make
 the core of the inner loop as simple and fast as possible. In our
-implementation, it boils down to the following routine, implemented
-using inline assembly:
+implementation, we use two versions of that core, implemented using
+inline assembly. The first version uses six 64-bit registers, to
+$\bar a$, $\bar b$, and the four update factors:
 \begin{verbatim}
         # Copy f0, g0, f1, g1, xa and xb into r10..r15
         movq   %rax, %r10
@@ -540,7 +593,7 @@ using inline assembly:
         cmovz  %r14, %rsi
         cmovz  %r15, %rdi
 
-        # Now xa is even; apply shift.
+        # Now xa is even; apply shift
         shrq   $1, %rsi
         addq   %rcx, %rcx
         addq   %rdx, %rdx
@@ -568,11 +621,56 @@ minimum of 8.25~cycles, not counting the \verb+mov+ opcodes. Simple
 measurements show that this sequence, when used in a loop, requires 9
 cycles per iteration (on our test system), which means that some of the
 \verb+mov+ opcodes are eliminated and replaced with internal free data
-routing. In total, the 508 iterations represent 4572~cycles by
-themselves; all the other operations (extraction of the properly shifted
-words, updates to $a$, $b$, $u$ and $v$, final multiplication by
-$2^{-508}$) use slightly less than 3000~cycles. This highlights the
-importance of optimizing that inner loop as much as possible.
+routing.
+
+The second version of the core loop is even faster:
+\begin{verbatim}
+        # Copy f0, g0, f1, g1, xa and xb into r10, r12, r14, r15
+        movq   %rax, %r10
+        movq   %rcx, %r12
+        movq   %rsi, %r14
+        movq   %rdi, %r15
+
+        # Conditional swap if xa < xb
+        cmpq   %rdi, %rsi
+        cmovb  %r15, %rsi
+        cmovb  %r14, %rdi
+        cmovb  %r12, %rax
+        cmovb  %r10, %rcx
+
+        # Subtract xb from xa
+        subq   %rdi, %rsi
+        subq   %rcx, %rax
+        addq   %rdx, %rax
+
+        # If xa was even, override the operations above
+        testl  $1, %r14d
+        cmovz  %r10, %rax
+        cmovz  %r12, %rcx
+        cmovz  %r14, %rsi
+        cmovz  %r15, %rdi
+
+        # Now xa is even; apply shift
+        shrq   $1, %rsi
+        addq   %rcx, %rcx
+        subq   %rdx, %rcx
+\end{verbatim}
+This alternate implementation keeps two update factors in the same
+register. Specifically, register \verb+rax+ contains $f_0 + 2^{31} - 1 +
+2^{32} (g_0 + 2^{31} - 1)$; \verb+rcx+ similarly contains $f_1$ and
+$g_1$. The constant $(2^{31} - 1)(2^{32} + 1)$ is kept in \verb+rdx+.
+Grouping values by pairs reduces the number of instructions, especially
+for conditional swaps and moves. The addition of the constant $2^{31}-1$
+to each update factor ensures that the stored values remain positive;
+thus, there will be no unwanted carry propagating from the low to high
+halves of the registers. The alternate loop appears to use, on average,
+about 6.17~cycles per iteration.
+
+In total, the 508 iterations represent about 3260~cycles by themselves;
+all the other operations (extraction of the properly shifted words,
+updates to $a$, $b$, $u$ and $v$, final multiplication by $2^{-508}$)
+use slightly less than 3000~cycles. This highlights the importance of
+optimizing the inner loop as much as possible.
 
 Measures are made on an Intel Core i5-8295U CPU, clocked at 2.3~GHz.
 Host system is Linux (Ubuntu 20.04, kernel 5.4.0-42). C compiler is
@@ -591,9 +689,9 @@ gone out of energy-saving mode and has reached its nominal frequency.
 used to make sure caches are populated and branch prediction is properly
 trained), then the median of the remaining 1000 is reported\footnote{The
 deactivation of TurboBoost and the warm-up steps ensure that the CPU
-runs at exactly the frequency used by the TSC counter. We also tried to
-use the performance counters, namely the CPU\_CLK.UNHALTED counter which
-is supposed to count ``true'' cycles, and can be read with
+runs at exactly the frequency used by the TSC counter. We also tried
+using the performance counters, namely the CPU\_CLK.UNHALTED counter
+which is supposed to count ``true'' cycles, and can be read with
 \texttt{rdpmc} at index \texttt{0x40000001}; this does not yield
 different results. Our test program uses \texttt{rdtsc} because it is
 readable by non-root userland processes by default. Regardless, some
@@ -601,10 +699,10 @@ measurement variance remains, of unclear provenance. It does not seem to
 be correlated with the value being inverted (since we observe that
 variance even when using the same values again and again), and thus
 should not contradict our claim of constant-time behaviour. It is known
-that modern complex CPUs are full of accumulated heuristics, many of them
-undocumented.}.
+that modern complex CPUs are full of accumulated heuristics, many of
+them undocumented.}.
 
-On this system, our inversion routine runs in 7490~cycles. This is
+On this system, our inversion routine runs in 6253~cycles. This is
 better than the previously published record\cite{BerYan2019}, which runs
 in 8520~cycles on the same system. For comparison purposes, we also
 implemented the usual inversion method with Fermat's little theorem
@@ -653,7 +751,8 @@ into elliptic curves\cite{DraftHashToCurve09}.
 
 \vspace{2ex}
 \noindent\textsf{\textbf{Acknowledgements:}} We thank Eric Schorn
-and Paul Bottinelli, who reviewed this article.
+and Paul Bottinelli, who reviewed this article, and Tim Taubert,
+who found the gap in the proof in a previous version.
 
 \begin{thebibliography}{20}
 
@@ -729,14 +828,15 @@ Journal of Computational Physics, vol.~1, issue~3, pp.~397–405, 1967.
 
 \appendix
 
+\newpage
 \section{Bounding the Number of Iterations}\label{sec:iterbound}
 
 In this section, we prove that the inner loop of
-algorithm~\ref{alg:bingcd:optimized} ensures that the $k$ iterations
-always reduce $\bitlength(a)+\bitlength(b)$ by at least $k$ bits.
+algorithm~\ref{alg:bingcd:optimized} ensures that the $k-1$ iterations
+always reduce $\bitlength(a)+\bitlength(b)$ by at least $k-1$ bits.
 
-Each excution of the inner loop consists of $k$ iterations. We number
-iterations from $0$ to $k-1$; this means that iteration $t$ happens just
+Each excution of the inner loop consists of $k-1$ iterations. We number
+iterations from $0$ to $k-2$; this means that iteration $t$ happens just
 after $t$ iterations have completed. We will note $x_t$ the value of the
 quantity $x$ (for any of the quantities we manipulate, namely $a$, $b$,
 $\bar a$ and $\bar b$) when \emph{exiting} iteration $t-1$ and
@@ -745,12 +845,12 @@ $\bar a$ and $\bar b$) when \emph{exiting} iteration $t-1$ and
 \subsection{Maximum Error Bound}\label{sec:iterbound:error}
 
 We first need to show that $\bar a$ and $\bar b$ remain ``good
-approximations'' of $a$ and $b$ over the $k$ iterations, i.e.,
+approximations'' of $a$ and $b$ over the $k-1$ iterations, i.e.,
 that the upper bits of $\bar a$ and $\bar b$ still match or are
 close to the upper bits of $a$ and $b$.
 
 First, notice that after $t$ iterations of the inner loop
-($0\leq t\leq k$), the following inequalities hold:
+($0\leq t\leq k-1$), the following inequalities hold:
 \begin{align*}
     |f_0| + |g_0| &\leq 2^t \\
     |f_1| + |g_1| &\leq 2^t
@@ -786,7 +886,7 @@ gain of at least 1 bit per iteration. We thus consider thereafter that
 $n > 2k$.
 
 Considering the situation after $t$ iterations of the inner loop
-($0\leq t\leq k$), we define:
+($0\leq t\leq k-1$), we define:
 \begin{align*}
     \bar a_t &= (\bar a f_0 + \bar b g_0)/2^t \\
     \bar b_t &= (\bar a f_1 + \bar b g_1)/2^t \\
@@ -799,12 +899,12 @@ update factors be applied at that point. Note that, by construction, the
 divisions by $2^t$ are exact.
 
 Note that $\bar a$ and $\bar b$ are approximations of $a$ and $b$ in the
-sense that bits $k$ to $2k-1$ of $\bar a$ (respectively $\bar b$) are
-exactly the same as bits $n-k$ to $n-1$ of $a$ (respectively $b$). This
+sense that bits $k-1$ to $2k-1$ of $\bar a$ (respectively $\bar b$) are
+exactly the same as bits $n-k-1$ to $n-1$ of $a$ (respectively $b$). This
 can be expressed with the following inequalities:
 \begin{align*}
-    |a - 2^{n-2k} \bar a| &< 2^{n-k} \\
-    |b - 2^{n-2k} \bar b| &< 2^{n-k}
+    |a - 2^{n-2k} \bar a| &< 2^{n-k-1} \\
+    |b - 2^{n-2k} \bar b| &< 2^{n-k-1}
 \end{align*}
 
 Consider now the following:
@@ -816,43 +916,43 @@ Consider now the following:
 Therefore, applying the triangular inequality:
 \begin{align*}
     |a_t - 2^{n-2k} \bar a_t|
-        &\leq 2^{-t} (|2^{n-k}| |f_0| + |2^{n-k}| |g_0|) \\
-        &\leq 2^{n-k-t} (|f_0| + |g_0|)
+        &\leq 2^{-t} (|2^{n-k-1}| |f_0| + |2^{n-k-1}| |g_0|) \\
+        &\leq 2^{n-k-1-t} (|f_0| + |g_0|)
 \end{align*}
 Since $|f_0| + |g_0| \leq 2^t$, we then get that:
 \begin{equation*}
-    |a_t - 2^{n-2k} \bar a_t| \leq 2^{n-k}
+    |a_t - 2^{n-2k} \bar a_t| \leq 2^{n-k-1}
 \end{equation*}
 and similary for $b$:
 \begin{equation*}
-    |b_t - 2^{n-2k} \bar b_t| \leq 2^{n-k}
+    |b_t - 2^{n-2k} \bar b_t| \leq 2^{n-k-1}
 \end{equation*}
 
-This means that, throughout the $k$ iterations, the upper bits ($k$ to
+This means that, throughout the $k$ iterations, the upper bits ($k-1$ to
 $2k-1$) of $\bar a$ and $\bar b$ remain a close approximation of the
-upper bits ($n-k$ to $n-1$) of the values $a$ and $b$ that they
+upper bits ($n-k-1$ to $n-1$) of the values $a$ and $b$ that they
 represent, i.e. the values we would get by applying the update factors
 right away.
 
 \subsection{Length Reduction at Divergence Point}\label{sec:iterbound:diverge}
 
 As in the previous section, consider the values $a$ and $b$ at the start
-of an inner loop. The $k$ iterations of the inner loop will perform
+of an inner loop. The $k-1$ iterations of the inner loop will perform
 halvings, swaps and subtractions based on the bits in $\bar a$ and $\bar
 b$, used as representations of $a$ and $b$. The halvings and
-subtractions rely on the $k$ low bits of $\bar a$ and $\bar b$, which
+subtractions rely on the $k-1$ low bits of $\bar a$ and $\bar b$, which
 are always exact; only the conditional swaps may differ between the
 classic and optimized algorithms, since, in the latter case, the
 relative ordering of $\bar a$ and $\bar b$ might not match that of $a$
 and $b$.
 
-If, throughout the $k$ iterations, the inner loop makes the exact same
+If, throughout the $k-1$ iterations, the inner loop makes the exact same
 decisions that it would take with the actual updated values of $a$ and
 $b$, then it follows the same steps as the classic algorithm
 (algorithm~\ref{alg:bingcd:classic}) on the same inputs, and thus
-obtains the same reduction in length of $a$ and $b$, i.e. at least $k$
+obtains the same reduction in length of $a$ and $b$, i.e. at least $k-1$
 bits in total. Otherwise, we call the \emph{divergence point} the
-iteration $d$ ($0\leq d < k$) at which the inner loop of
+iteration $d$ ($0\leq d < k-1$) at which the inner loop of
 algorithm~\ref{alg:bingcd:optimized} takes a different decision from
 that would have been taken by the classic algorithm. Let us observe the
 situation at that point, using the notations from
@@ -881,21 +981,22 @@ and thus:
 \begin{equation*}
     |2^{n-2k} (\bar a_d - \bar b_d) - (a_d - b_d)|
         \leq |2^{n-2k} \bar a_d - a_d| + |b_d - 2^{n-2k} \bar b_d|
-        \leq 2^{n-k+1}
+        \leq 2^{n-k}
 \end{equation*}
 Since $2^{n-2k}(\bar a_d - \bar b_d) \geq 0$ and $a_d - b_d < 0$, and their
-difference is no greater in absolute value than $2^{n-k+1}$, it follows that:
+difference is no greater in absolute value than $2^{n-k}$, it follows that:
 \begin{equation*}
-    0 \leq \bar a_d - \bar b_d < 2^{k+1}
+    0 \leq \bar a_d - \bar b_d < 2^k
 \end{equation*}
 Therefore, at the divergence point $d$, the inner loop will compute a new
 value $\bar a_{d+1} = (\bar a_d - \bar b_d)/2$ which will be strictly lower
-than $2^k$, hence such that all its upper bits will be zero. Similarly:
+than $2^{k-1}$, hence such that all its $k+1$ upper bits will be zero.
+Similarly:
 \begin{equation*}
-    0 > a_d - b_d \geq -2^{n-k+1}
+    0 > a_d - b_d \geq -2^{n-k}
 \end{equation*}
-which implies that $|a_{d+1}| \leq 2^{n-k}$. Note that $|a_{d+1}|$ may
-be equal to $2^{n-k}$ only if $\bar a_d = \bar b_d$, in which case $\bar
+which implies that $|a_{d+1}| \leq 2^{n-k-1}$. Note that $|a_{d+1}|$ may
+be equal to $2^{n-k-1}$ only if $\bar a_d = \bar b_d$, in which case $\bar
 a_{d+1} = 0$ and all subsequent iterations of the inner loop will decide
 to divide $\bar a_t$ (and thus $a_t$) by 2, without any further
 subtraction.
@@ -913,7 +1014,7 @@ We again consider a situation at the start of an inner loop, such that:
 \end{itemize}
 In all other inner loop cases, the execution follows the steps of the
 classic binary GCD algorithm, thereby ensuring a total length reduction
-of $(a,b)$ by at least $k$ bits.
+of $(a,b)$ by at least $k-1$ bits.
 
 After the divergence point, the following properties apply:
 \begin{itemize}
@@ -930,22 +1031,22 @@ and the other one will be positive. It cannot happen that two strictly
 negative values, or two nonnegative values are obtained, unless $a$
 reaches zero (in which case the algorithm has converged).
 
-Moreover, if $|a_t| \geq 2^{n-k}$ and $|b_t| < 2^{n-k}$, then:
+Moreover, if $|a_t| \geq 2^{n-k-1}$ and $|b_t| < 2^{n-k-1}$, then:
 \begin{equation*}
     \left| \frac{a_t - b_t}{2} \right| \leq \frac{|a_t| + |b_t|}{2} < |a_t|
 \end{equation*}
-and if $|a_t| < 2^{n-k}$ and $|b_t| < 2^{n-k}$, then:
+and if $|a_t| < 2^{n-k-1}$ and $|b_t| < 2^{n-k-1}$, then:
 \begin{equation*}
-    \left| \frac{a_t - b_t}{2} \right| \leq \frac{|a_t| + |b_t|}{2} < 2^{n-k}
+    \left| \frac{a_t - b_t}{2} \right| \leq \frac{|a_t| + |b_t|}{2} < 2^{n-k-1}
 \end{equation*}
 As remarked in section~\ref{sec:iterbound:error}, if the divergence
-point yields $a_{d+1} = -2^{n-k}$, then all subsequent iterations will
+point yields $a_{d+1} = -2^{n-k-1}$, then all subsequent iterations will
 use $\bar a_t = 0$ and none of them will try to perform a subtraction
-(or a swap); otherwise, $|a_{d+1}| < 2^{n-k}$. It follows that, after
+(or a swap); otherwise, $|a_{d+1}| < 2^{n-k-1}$. It follows that, after
 the point of divergence, even if an iteration fails to reduce the sum
 of the lengths of $a_t$ and $b_t$, it will not allow any value $a$ or
-$b$ above $2^{n-k}$ to grow, or any value below $2^{n-k}$ to regrow
-beyond $n-k$ bits.
+$b$ above $2^{n-k-1}$ to grow, or any value below $2^{n-k-1}$ to regrow
+beyond $n-k-1$ bits.
 
 Using these properties, we analyze the possible cases, depending
 on the initial lengths of the values.
@@ -957,28 +1058,30 @@ $\bitlength(b) \leq n-k$
 This situation means that, when starting the inner loop, $b$ was shorter
 than $a$ by at least $k$ bits.
 
-In that case, $\bar b < 2^k$ and $\bar a \geq 2^{2k - 1}$; thus,
-after $t$ successive steps, the minimal value of $\bar a_t$ is
-$\bar a_t - (2^t - 1)\bar b_t$ (if $b_t$ was subtracted from $a_t$ at
-each iteration). For $t \leq k-1$, we have:
+In that case, $\bar b < 2^k$ and $\bar a \geq 2^{2k - 1}$. The first
+iteration will see that $\bar a > \bar b$ and there will be no
+swap. In fact, after $t$ iterations with no swap, the minimal value
+for $\bar a_t$ will be $(\bar a - (2^t-1)\bar b)/2^t$. For
+$t \leq k-2$, we have:
 \begin{align*}
-    \bar a_t - (2^t - 1) \bar b_t &> 2^{2k - 1} - (2^t - 1) (2^k - 1) \\
-        &> 2^{2k - 1} - (2^{k - 1} - 1) (2^k - 1) \\
-        &> 2^{2k - 1} - (2^{2k - 1} - 2^{k - 1} - 2^k + 1) \\
-        &> 2^{k - 1} + 2^k - 1 \\
-        &> \bar b_t
+    \bar a - (2^t - 1)\bar b &\geq 2^{2k-1} - (2^t - 1)(2^k - 1) \\
+        &\geq 2^{2k-1} - (2^{k-2} - 1)(2^k - 1) \\
+        &>    2^{2k-1} - 2^{2k-2} \\
+        &>    2^{2k-2}
 \end{align*}
-Thus, up to and including the last iteration, $a_t > b_t$ and the inner
-loop will not perform a swap. It follows that, after $k$ iterations, the
-reduction factors are such that $f_0 = 1$, $0\geq g_0\geq -(2^k-1)$,
-$f_1 = 0$, and $g_1 = 2^k$. Since $a > 2^{k-1} b$, similar inequalities
-imply that if there is a divergence point, then it may only happen at
-the last iteration; that last iteration will then compute a negative
-$a_k$, but such that $|a_k| < 2^{n-k}$ (since it will be the result of
-subtracting $b_{k-1}$, still equal to $b$ at that point, from a
-nonnegative $a_{k-1}$). The conditional negation will make the next $a$
-positive, and of length at most $n-k$ bits. In total, $a$ has been reduced
-by at least $k$ bits, while $b$ was unchanged.
+This implies that $\bar a_t > 2^{2k-2-t} \geq 2^{k} > \bar b_t$.
+Therefore, the next iteration will still perform no swap. In total,
+there will be no swap over the $k-1$ iterations. It follows that, after
+$k-1$ iterations, the reduction factors are such that $f_0 = 1$, $0\geq
+g_0\geq -(2^{k-1}-1)$, $f_1 = 0$, and $g_1 = 2^{k-1}$. The update on $a$
+will compute $(af_0 + bg_0)/2^{k-1}$; since $a > 2^{k-1} b$ and $|g_0| <
+2^{k-1}$, the new value of $a$ cannot be negative. Similarly, the new
+value of $b$ cannot be negative since $f_1$ and $g_1$ are nonnnegative.
+As was pointed out previously, after a divergence point, values $a_t$
+and $b_t$ have opposite signs. We concluded that, in this case, there is
+no divergence point, and a reduction of at least $k-1$ bits is achieved,
+since the optimized algorithm follows the exact same steps as the
+classic algorithm.
 
 \vspace{2ex}
 \noindent\textsf{\textbf{Case 2:}} $\bitlength(a) \leq n-k$ and
@@ -987,12 +1090,11 @@ $\bitlength(b) = n$
 This case is similar to the previous case. It may start with some
 divisions of $a$ by 2; if $s$ such steps happen before reaching an odd
 $\bar a$, then we can apply the analysis of the previous case, replacing
-$k$ with $k-s$: a swap occurs at iteration $s$, and after the swap,
+$k-1$ with $k-1-s$: a swap occurs at iteration $s$, and after the swap,
 the new $a$ (previously $b$) has length $n$ bits while the new $b$
 (previously $a$) has length at most $n-k-s$ bits. The subsequent
-$k-s$ iterations will each reduce $a$ by at least one bit each, but
-may reach a divergence point only on the last iteration, and only if
-$s = 0$; the total reduction will still be at least $k$ bits.
+$k-1-s$ iterations will each reduce $a$ by at least one bit each, but
+there will be no further swap and no divergence point will be reached.
 
 \vspace{2ex}
 \noindent\textsf{\textbf{Case 3:}} $\bitlength(a) = n$ and
@@ -1000,12 +1102,12 @@ $\bitlength(b) \geq n - k + 1$, or $\bitlength(a) \geq n - k + 1$
 and $\bitlength(a) = n$
 
 Suppose that when the divergence point ($d$) is reached,
-$b_d < 2^{n-k}$. Since the divergence point is such that $a_d < b_d$,
-this implies that $a_d < 2^{n-k}$ as well. Therefore, the two values
-have already been reduced by at least $k+1$ bits in total at this
+$b_d < 2^{n-k-1}$. Since the divergence point is such that $a_d < b_d$,
+this implies that $a_d < 2^{n-k-1}$ as well. Therefore, the two values
+have already been reduced by at least $k+3$ bits in total at this
 point. Since operations beyond the divergence point won't allow values
-to regrow beyond $2^{n-k}$ in absolute value, it follows that the
-total reduction will be at least $k+1$ bits.
+to regrow beyond $2^{n-k-1}$ in absolute value, it follows that the
+total reduction will be at least $k+3$ bits.
 
 We now assume that when the divergence point is reached,
 $\bitlength(b_d) = n - k + j$ for some $j\geq 0$. Since $a_d < b_d$
@@ -1013,36 +1115,22 @@ $\bitlength(b_d) = n - k + j$ for some $j\geq 0$. Since $a_d < b_d$
 k + j$ as well. Since one of the starting values had length $n$ bits,
 this means that at least $k - j$ bits of reduction have been achieved at
 that point. Then, the new value of $a$ is $a_{d+1}$ which is such that
-$0 > a_{d+1} \geq -2^{n-k}$. If $a_{d+1} \neq -2^{n-k}$, then this
+$0 > a_{d+1} \geq -2^{n-k-1}$. If $a_{d+1} \neq -2^{n-k-1}$, then this
 represents an extra reduction of at least $j$ bits in length, hence $k -
 j + j = k$ bits at least in total. As remarked above, subsequent steps
-won't allow any value of more than $k$ bits to grow, so this reduction
-level cannot be compromised; after the $k$ iterations, total reduction
+won't allow any value of more than $k-1$ bits to grow, so this reduction
+level cannot be compromised; after the $k-1$ iterations, total reduction
 will still be at least $k$ bits.
 
-The remaining case is when $a_{d+1} = -2^{n-k}$, exactly. At that
+The remaining case is when $a_{d+1} = -2^{n-k-1}$, exactly. At that
 point, we have a reduction of at least $k - 1$ bits. Moreover, since
-$\bar a_{d+1} = 0$, subsequent steps, if any, will divide $a$ by 2.
-Thus, if $d < k - 1$, then there will be at least one such extra step,
-and, again, at least $k$ bits of reduction will be achieved. We thus
-now assume that the divergence step happens at the last iteration of
-the inner loop ($d = k - 1$). Since $a_{d+1} = -2^{n-k} = (a_d - b_d)/2$,
-then $a_d = b_d - 2^{n-k+1}$; however, $\bar a_d = \bar b_d$, and
-we know (see section~\ref{sec:iterbound:error}) that:
-\begin{align*}
-    |a_d - 2^{n-2k}\bar a_d| &\leq 2^{n-k} \\
-    |b_d - 2^{n-2k}\bar b_d| &\leq 2^{n-k}
-\end{align*}
-This implies that, in that case, $a_d$ and $b_d$ are apart from each
-other by exactly $2^{n-k+1}$, but cannot be apart from the common
-value $2^{n-2k}\bar a_d$ by more than $2^{n-k}$. It then follows
-that $a_d = 2^{n-2k}\bar a_d - 2^{n-k}$ and
-$b_d = 2^{n-2k}\bar a_d + 2^{n-k}$. This is not possible, since, by
-construction, $a_d$ and $b_d$ are both odd at this point.
+$\bar a_{d+1} = 0$, subsequent steps, if any, will divide $a$ by 2
+but leave $b$ unchanged; there will be no loss on that reduction
+level. We thus obtain at least $k-1$ bits of reduction.
 
 \vspace{2ex}
 \noindent\textsf{\textbf{Conclusion:}} In all cases, we saw that
-a reduction of at least $k$ bits is achieved, which completes the proof.
+a reduction of at least $k-1$ bits is achieved, which completes the proof.
 
 \vspace{2ex}
 \noindent\textsf{\textbf{Commentary:}} It may be surprising that even
@@ -1050,10 +1138,10 @@ using approximations, we do not need more iterations than the classic
 binary GCD, for which the worst case bound $2\bitlength(m)-1$ is already
 optimal. Intuitively, the reason is that we have some extra ``hidden''
 iterations: the conditional negation of $a$ and $b$ (after their
-respective updates every $k$ iterations) is the point where the
+respective updates every $k-1$ iterations) is the point where the
 approximation is resolved. In that sense, the optimized algorithm really
-needs $k+1$ iterations in the worst case to achieve a $k$-bit reduction;
-the last of these $k+1$ iterations masquerades as a pair of conditional
+needs $k$ iterations in the worst case to achieve a $k-1$-bit reduction;
+the last of these $k$ iterations masquerades as a pair of conditional
 subtractions.
 
 \end{document}

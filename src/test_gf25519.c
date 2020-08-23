@@ -354,7 +354,14 @@ test_inv(void)
 			0, 0, 0, 0, 0, 0, 0, 0
 		};
 
-		rand_gf(&rng, &a);
+		if (i == 0) {
+			a.v0 = 0;
+			a.v1 = 0;
+			a.v2 = 0;
+			a.v3 = (uint64_t)1 << 62;
+		} else {
+			rand_gf(&rng, &a);
+		}
 		gf_inv(&b, &a);
 		gf_mul(&c, &a, &b);
 		gf_encode(tmp, &c);
