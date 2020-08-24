@@ -371,7 +371,7 @@ gf_mul_inline(gf *d, const gf *a, const gf *b)
 		   to fold. This is extra work right now, but removes
 		   an extra dependency later on. */
 		"shld	$1, %%r11, %%r15\n\t"
-		"andq	global_m63, %%r11\n\t"
+		"andq	%6, %%r11\n\t"
 		"imulq	$(" ST(MQ) "), %%r15, %%r15\n\t"
 		"addq	%%r15, %%r8\n\t"
 		"adcq	%%rsi, %%r9\n\t"
@@ -401,7 +401,7 @@ gf_mul_inline(gf *d, const gf *a, const gf *b)
 		"movq	%%r11, 24(%0)\n\t"
 
 		: "=D" (d), "=S" (a), "=c" (b)
-		: "0" (d), "1" (a), "2" (b)
+		: "0" (d), "1" (a), "2" (b), "m"(global_m63)
 		: "cc", "memory", "rax", "rbx", "rdx", "r8", "r9",
 		  "r10", "r11", "r12", "r13", "r14", "r15"
 	);
@@ -520,7 +520,7 @@ gf_sqr_inline(gf *d, const gf *a)
 		   to fold. This is extra work right now, but removes
 		   an extra dependency later on. */
 		"shld	$1, %%r11, %%r15\n\t"
-		"andq	global_m63, %%r11\n\t"
+		"andq	%4, %%r11\n\t"
 		"imulq	$(" ST(MQ) "), %%r15, %%r15\n\t"
 		"addq	%%r15, %%r8\n\t"
 		"adcq	%%rsi, %%r9\n\t"
@@ -550,7 +550,7 @@ gf_sqr_inline(gf *d, const gf *a)
 		"movq	%%r11, 24(%0)\n\t"
 
 		: "=D" (d), "=S" (a)
-		: "0" (d), "1" (a)
+		: "0" (d), "1" (a), "m"(global_m63)
 		: "cc", "memory", "rax", "rbx", "rcx", "rdx", "r8", "r9",
 		  "r10", "r11", "r12", "r13", "r14", "r15"
 	);
@@ -673,7 +673,7 @@ gf_sqr_x_inline(gf *d, const gf *a, long num)
 		   to fold. This is extra work right now, but removes
 		   an extra dependency later on. */
 		"shld	$1, %%rbp, %%r15\n\t"
-		"andq	global_m63, %%rbp\n\t"
+		"andq	%6, %%rbp\n\t"
 		"imulq	$(" ST(MQ) "), %%r15, %%r15\n\t"
 		"addq	%%r15, %%rax\n\t"
 		"adcq	%%r10, %%rbx\n\t"
@@ -698,7 +698,7 @@ gf_sqr_x_inline(gf *d, const gf *a, long num)
 		"movq	%%rbp, 24(%%rdi)\n\t"
 
 		: "=D" (d), "=S" (a), "=d" (num)
-		: "0" (d), "1" (a), "2" (num)
+		: "0" (d), "1" (a), "2" (num), "m"(global_m63)
 		: "cc", "memory", "rax", "rbx", "rcx", "rbp", "r8", "r9",
 		  "r10", "r11", "r12", "r13", "r14", "r15"
 	);
