@@ -1400,6 +1400,9 @@ gf_inv(gf *d, const gf *y)
 	 * be zero, in which case a = 0 and v = 0 throughout, which is
 	 * the expected result.
 	 */
+	xa = a.v0;
+	xb = b.v0;
+
 	__asm__ (
 		/* Set f0, g0, f1 and g1. */
 		"movl	$1, %%eax\n\t"
