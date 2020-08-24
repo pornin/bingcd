@@ -273,7 +273,8 @@ __attribute__((always_inline))
 static inline void
 gf_mul_inline(gf *d, const gf *a, const gf *b)
 {
-	__asm__ (
+
+	__asm__ volatile (
 		/*
 		 * We compute the 512-bit result into r8..r15. Carry
 		 * word is in rax. Multiplier word is in rdx (since that's
@@ -421,7 +422,7 @@ __attribute__((always_inline))
 static inline void
 gf_sqr_inline(gf *d, const gf *a)
 {
-	__asm__ (
+	__asm__ volatile (
 		/*
 		 * We compute the 512-bit result into r8..r15. Carry
 		 * word is in rax. Multiplier word is in rdx (since that's
@@ -570,7 +571,7 @@ __attribute__((always_inline))
 static void
 gf_sqr_x_inline(gf *d, const gf *a, long num)
 {
-	__asm__ (
+	__asm__ volatile (
 		/*
 		 * Load a0..a3 into rax:rbx:rcx:rbp
 		 * Then reuse esi as loop counter.
@@ -1316,7 +1317,7 @@ gf_inv(gf *d, const gf *y)
 		 * total on a Coffee Lake core.
 		 */
 
-		__asm__ (
+		__asm__ volatile (
 			/*
 			 * f0 = 1
 			 * g0 = 0
@@ -1400,7 +1401,7 @@ gf_inv(gf *d, const gf *y)
 	 * be zero, in which case a = 0 and v = 0 throughout, which is
 	 * the expected result.
 	 */
-	__asm__ (
+	__asm__ volatile  (
 		/* Set f0, g0, f1 and g1. */
 		"movl	$1, %%eax\n\t"
 		"xorl	%%ebx, %%ebx\n\t"
