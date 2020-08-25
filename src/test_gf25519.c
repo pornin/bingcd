@@ -432,8 +432,19 @@ cmp_u64(const void *p1, const void *p2)
 static inline uint64_t
 core_cycles(void)
 {
+	/*
+	 * GCC seems not to have the __rdtsc() intrinsic.
+	 */
+#if defined __GNUC__ && !defined __clang__
+	uint32_t hi, lo;
+
+	_mm_lfence();
+	__asm__ __volatile__ ("rdtsc" : "=d" (hi), "=a" (lo) : : );
+	return ((uint64_t)hi << 32) | (uint64_t)lo;
+#else
 	_mm_lfence();
 	return __rdtsc();
+#endif
 }
 
 static void

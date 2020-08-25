@@ -273,7 +273,7 @@ __attribute__((always_inline))
 static inline void
 gf_mul_inline(gf *d, const gf *a, const gf *b)
 {
-	__asm__ (
+	__asm__ __volatile__ (
 		/*
 		 * We compute the 512-bit result into r8..r15. Carry
 		 * word is in rax. Multiplier word is in rdx (since that's
@@ -370,7 +370,7 @@ gf_mul_inline(gf *d, const gf *a, const gf *b)
 		   to fold. This is extra work right now, but removes
 		   an extra dependency later on. */
 		"shld	$1, %%r11, %%r15\n\t"
-		"andq	global_m63, %%r11\n\t"
+		"andq	global_m63(%%rip), %%r11\n\t"
 		"imulq	$(" ST(MQ) "), %%r15, %%r15\n\t"
 		"addq	%%r15, %%r8\n\t"
 		"adcq	%%rsi, %%r9\n\t"
@@ -421,7 +421,7 @@ __attribute__((always_inline))
 static inline void
 gf_sqr_inline(gf *d, const gf *a)
 {
-	__asm__ (
+	__asm__ __volatile__ (
 		/*
 		 * We compute the 512-bit result into r8..r15. Carry
 		 * word is in rax. Multiplier word is in rdx (since that's
@@ -519,7 +519,7 @@ gf_sqr_inline(gf *d, const gf *a)
 		   to fold. This is extra work right now, but removes
 		   an extra dependency later on. */
 		"shld	$1, %%r11, %%r15\n\t"
-		"andq	global_m63, %%r11\n\t"
+		"andq	global_m63(%%rip), %%r11\n\t"
 		"imulq	$(" ST(MQ) "), %%r15, %%r15\n\t"
 		"addq	%%r15, %%r8\n\t"
 		"adcq	%%rsi, %%r9\n\t"
@@ -570,7 +570,7 @@ __attribute__((always_inline))
 static void
 gf_sqr_x_inline(gf *d, const gf *a, long num)
 {
-	__asm__ (
+	__asm__ __volatile__ (
 		/*
 		 * Load a0..a3 into rax:rbx:rcx:rbp
 		 * Then reuse esi as loop counter.
@@ -672,7 +672,7 @@ gf_sqr_x_inline(gf *d, const gf *a, long num)
 		   to fold. This is extra work right now, but removes
 		   an extra dependency later on. */
 		"shld	$1, %%rbp, %%r15\n\t"
-		"andq	global_m63, %%rbp\n\t"
+		"andq	global_m63(%%rip), %%rbp\n\t"
 		"imulq	$(" ST(MQ) "), %%r15, %%r15\n\t"
 		"addq	%%r15, %%rax\n\t"
 		"adcq	%%r10, %%rbx\n\t"
@@ -1316,7 +1316,7 @@ gf_inv(gf *d, const gf *y)
 		 * total on a Coffee Lake core.
 		 */
 
-		__asm__ (
+		__asm__ __volatile__ (
 			/*
 			 * f0 = 1
 			 * g0 = 0
@@ -1403,7 +1403,7 @@ gf_inv(gf *d, const gf *y)
 	xa = a.v0;
 	xb = b.v0;
 
-	__asm__ (
+	__asm__ __volatile__ (
 		/* Set f0, g0, f1 and g1. */
 		"movl	$1, %%eax\n\t"
 		"xorl	%%ebx, %%ebx\n\t"
