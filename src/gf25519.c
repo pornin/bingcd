@@ -1031,7 +1031,7 @@ gf_lin(gf *d, const gf *u, const gf *v,
 	 * propagate beyond the second limb.
 	 */
 	cc = _addcarry_u64(0, d0, -(unsigned long long)cc & (2 * MQ), &d0);
-	cc = _addcarry_u64(cc, d1, 0, &d1);
+	(void)_addcarry_u64(cc, d1, 0, &d1);
 
 	d->v0 = d0;
 	d->v1 = d1;
@@ -1249,8 +1249,8 @@ gf_inv(gf *d, const gf *y)
 		 *  - If len(a) <= 64 and len(b) <= 64, then we just
 		 *    use the value (low limb).
 		 *  - Otherwise, with n = max(len(a), len(b)), we use:
-		 *       (a mod 2^31) + 2^33*(floor(a / 2^(n-33)))
-		 *       (b mod 2^31) + 2^33*(floor(b / 2^(n-33)))
+		 *       (a mod 2^31) + 2^31*(floor(a / 2^(n-33)))
+		 *       (b mod 2^31) + 2^31*(floor(b / 2^(n-33)))
 		 * I.e. we remove the "middle bits".
 		 */
 		m3 = a.v3 | b.v3;
